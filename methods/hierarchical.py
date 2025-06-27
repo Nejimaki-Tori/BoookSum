@@ -1,4 +1,4 @@
-from utils import AsyncList, client, oclient, extract_response
+from utils import AsyncList, extract_response
 from metrics import similarity
 
 CHUNK_SUMMARY_PROMPT = """Ниже приведена часть истории:
