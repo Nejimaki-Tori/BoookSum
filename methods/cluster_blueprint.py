@@ -6,6 +6,7 @@ from typing import List, Dict
 from metrics import encoder
 import numpy as np
 import faiss
+import torch
 
 BLUEPRINT_PROMPT = """Для следующего отрывка текста создайте план, обязательно состоящий из последовательности вопросов и ответов (не более 15 пар, лучше использовать только ключевые вопросы), которые помогут выделить основные события, персонажей и ключевые моменты. Создавайте только план, не добавляя ничего лишнего. Убедитесь, что каждый вопрос обязательно сопровождается четким и кратким ответом.
 
@@ -91,7 +92,7 @@ class BlueprintCluster:
         for chunk in chunks:
             results.append(self.generate_blueprint(chunk))
     
-        await results.complete_couroutines(batch_size=30)
+        await results.complete_couroutines(batch_size=40)
         blueprints = await results.to_list()
     
         questions = []
@@ -100,17 +101,17 @@ class BlueprintCluster:
             questions.extend(self.extract_questions(bp)[:max_q_per_chunk])
     
         # 2) K‑means
-        emb = encoder.encode(questions, convert_to_tensor=False, normalize_embeddings=True)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        emb = encoder.encode(questions, normalize_embeddings=True, device=device)
         emb = np.asarray(emb, dtype='float32')
     
         k = max(2, int(math.sqrt(len(questions))))
         dim = emb.shape[1]
+
         index = faiss.IndexFlatIP(dim)
-    
         clus = faiss.Clustering(dim, k)
         clus.niter = 20
         clus.max_points_per_centroid = 10_000
-    
         clus.train(emb, index)
         _, I = index.search(emb, 1)
     
@@ -118,7 +119,6 @@ class BlueprintCluster:
     
         for lbl, q in zip(I.ravel().tolist(), questions):
             clusters.setdefault(lbl, []).append(q)
-    
         # 3) обобщаем
         gen_tasks_results = AsyncList()
     
@@ -126,12 +126,20 @@ class BlueprintCluster:
             sample = random.sample(qs, min(sample_per_cluster, len(qs)))
             gen_tasks_results.append(self.generalize_questions(sample))
     
-        await gen_tasks_results.complete_couroutines(batch_size=30)
+        await gen_tasks_results.complete_couroutines(batch_size=40)
         gen_tasks = await gen_tasks_results.to_list()
     
         return gen_tasks
     
-    
+
+    async def merge_pair(self, sum1, sum2, blpr, word_limit):
+        if not sum2:
+            return sum1
+        combo = f"{sum1} {sum2}".strip()
+        if len(combo.split()) > word_limit:
+            combo = await self.summarize_with_blueprint(combo, blpr)
+        return combo
+        
     async def cluster_text_blueprint_summary(self, chunks, word_limit=500):
         global_plan = await self.build_global_plan(chunks)
         blueprint_glob = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(global_plan))
@@ -141,27 +149,21 @@ class BlueprintCluster:
         for chunk in chunks:
             results.append(self.summarize_with_blueprint(chunk, blueprint_glob))
     
-        await results.complete_couroutines(batch_size=30)
+        await results.complete_couroutines(batch_size=40)
         summaries = await results.to_list()
     
         while len(summaries) > 1:
             merged_level = []
             i = 0
-    
+            tasks = AsyncList()
             while i < len(summaries):
-                if i + 1 < len(summaries):
-                    combo = f"{summaries[i]} {summaries[i + 1]}".strip()
-    
-                    if len(combo.split()) > word_limit:
-                        combo = await self.summarize_with_blueprint(combo, blueprint_glob)
-    
-                    merged_level.append(combo)
-                    i += 2
-                else:
-                    merged_level.append(summaries[i])
-                    i += 1
-    
-            summaries = merged_level
+                sum1 = summaries[i]
+                sum2 = summaries[i + 1] if i + 1 < len(summaries) else None
+                tasks.append(self.merge_pair(sum1, sum2, blueprint_glob, word_limit))
+                i += 2
+                
+            await tasks.complete_couroutines(batch_size=40)
+            summaries = await tasks.to_list()
     
         final_summary = summaries[0].strip()
     

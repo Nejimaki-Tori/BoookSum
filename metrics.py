@@ -4,6 +4,7 @@ from sentence_transformers import SentenceTransformer
 from ignite.metrics import RougeL
 from utils import lemmatize_text, LlmCompleter, AsyncList, oclient, model
 import re
+import torch
 
 
 rouge = hf_load('rouge')
@@ -27,8 +28,9 @@ def bert_f1(pred: str, ref: str) -> float:
 
 
 def similarity(a: str, b: str) -> float:
-    emb_1 = encoder.encode(a)
-    emb_2 = encoder.encode(b)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    emb_1 = encoder.encode(a, device=device)
+    emb_2 = encoder.encode(b, device=device)
 
     return round(float(encoder.similarity(emb_1, emb_2).item()), 3)
 

@@ -12,3 +12,4 @@ numpy
 absl-py
 rouge-score
 faiss-cpu
+bert_score

@@ -52,6 +52,15 @@ class Blueprint:
         summary = extract_response(sumry)
     
         return summary
+
+    async def merge_pair(self, sum1, sum2, word_limit):
+        if not sum2:
+            return sum1
+        combo = f"{sum1} {sum2}".strip()
+        if len(combo.split()) > word_limit:
+            bp = await self.generate_blueprint(combo)
+            combo = await self.summarize_with_blueprint(combo, bp)
+        return combo
     
     
     async def text_blueprint_summary(self, chunks, word_limit=500):
@@ -72,28 +81,22 @@ class Blueprint:
         for chunk, blueprint in zip(chunks, blueprints):
             summaries_list.append(self.summarize_with_blueprint(chunk, blueprint))
     
-        await summaries_list.complete_couroutines(batch_size=30)
+        await summaries_list.complete_couroutines(batch_size=40)
         summaries = await summaries_list.to_list()
     
         while len(summaries) > 1:
+            tasks = AsyncList()
             merged_level = []
             i = 0
     
             while i < len(summaries):
-                if i + 1 < len(summaries):
-                    combo = f"{summaries[i]} {summaries[i + 1]}".strip()
-    
-                    if len(combo.split()) > word_limit:
-                        bp = await self.generate_blueprint(combo)
-                        combo = await self.summarize_with_blueprint(combo, bp)
-    
-                    merged_level.append(combo)
-                    i += 2
-                else:
-                    merged_level.append(summaries[i])
-                    i += 1
-    
-            summaries = merged_level
+                sum1 = summaries[i]
+                sum2 = summaries[i + 1] if i + 1 < len(summaries) else None
+                tasks.append(self.merge_pair(sum1, sum2, word_limit))
+                i = i + 2 if i + 1 < len(summaries) else i + 1
+                
+            await tasks.complete_couroutines(batch_size=40)
+            summaries = await tasks.to_list()
     
         final_summary = summaries[0].strip()
     

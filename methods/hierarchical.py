@@ -84,11 +84,15 @@ class Hierarchical:
     
         return result
     
-    
+    async def merge_group(self, group1, group2, current_word_limit):
+        temp_summary = await self.merge_summaries(group1, current_word_limit)
+        temp_summary = await self.merge_summaries(group2, current_word_limit, use_context=True, previous_summary=temp_summary)
+        return temp_summary
+        
     async def hierarchical_summary(self, chunks, initial_word_limit=500, filtered=True):
         if not chunks:
             raise ValueError("`chunks` должен содержать хотя бы один элемент!")
-        
+        #print('chunks len: ', len(chunks))
         rest_chunks = self.filter_near_duplicates(chunks) if filtered else chunks
     
         results = AsyncList()
@@ -96,41 +100,46 @@ class Hierarchical:
         for chunk in rest_chunks:
             results.append(self.summarize_chunk(chunk, initial_word_limit))
     
-        await results.complete_couroutines(batch_size=20)
+        await results.complete_couroutines(batch_size=40)
         summaries = await results.to_list()
-    
+        #print('sum len: ', len(summaries))
         current_level_summaries = summaries
         current_word_limit = initial_word_limit
     
-        if len(current_level_summaries) == 0 and filtered:
-            raise RuntimeError("Не осталось ни одной аннотации после фильтрации узлов!")
+        #if len(current_level_summaries) == 0 and filtered:
+        #    raise RuntimeError("Не осталось ни одной аннотации после фильтрации узлов!")
     
         if len(current_level_summaries) == 1:
             return current_level_summaries[0]
     
         if len(current_level_summaries) == 2:
             return await self.merge_summaries(current_level_summaries, current_word_limit)
-    
+
+        count = 0
         while len(current_level_summaries) > 2:
-            next_level_summaries = []
+            #print('count: ', count)
+            count += 1
             i = 0
-    
+            tasks = AsyncList()
             while i < len(current_level_summaries):
                 if i + 2 < len(current_level_summaries):
-                    temp_summary = await self.merge_summaries(current_level_summaries[i: i + 3], current_word_limit)
-    
+                    group1 = current_level_summaries[i: i + 3]
                     if i + 5 < len(current_level_summaries):
-                        temp_summary = await self.merge_summaries(current_level_summaries[i + 3: i + 6], current_word_limit, use_context=True, previous_summary=temp_summary)
+                        group2 = current_level_summaries[i + 3: i + 6]
+                        tasks.append(self.merge_group(group1, group2, current_word_limit))
                         i += 6
                     else:
+                        tasks.append(self.merge_summaries(group1, current_word_limit))
                         i += 3
-    
-                    next_level_summaries.append(temp_summary)
                 else:
-                    next_level_summaries.append(current_level_summaries[i])
+                    tasks.append(current_level_summaries[i])
                     i += 1
-    
+            #print('waiting...')
+            await tasks.complete_couroutines(batch_size=40)
+            next_level_summaries = await tasks.to_list()
             current_level_summaries = self.filter_near_duplicates(next_level_summaries) if filtered else next_level_summaries
+            #print('Done!')
+            #print('len of new sum: ', len(current_level_summaries))
     
         if len(current_level_summaries) == 1:
             return current_level_summaries[0]
