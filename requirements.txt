@@ -1,0 +1,14 @@
+asyncio
+openai
+torch
+scipy
+nltk
+transformers
+tqdm
+evaluate
+sentence_transformers
+pytorch-ignite
+numpy
+absl-py
+rouge-score
+faiss-cpu

@@ -36,7 +36,7 @@ class Iterative:
     def __init__(self, client):
         self.client = client
 
-    def generate_initial_summary(self, chunk, word_limit=500):
+    async def generate_initial_summary(self, chunk, word_limit=500):
         myprompt = INITIAL_SUMMARY_PROMPT.format(chunk=chunk, word_limit=word_limit)
     
         res = await self.client.get_completion(myprompt, max_tokens=4000)
@@ -46,8 +46,8 @@ class Iterative:
         return result
     
     
-    def generate_intermediate_summary(self, chunk, current_summary, word_limit=500):
-        myprompt = INTERMEDIATE_SUMMARY_PROMPT.format(chunk=chunk, current_summary=current_summary, word_limit)
+    async def generate_intermediate_summary(self, chunk, current_summary, word_limit=500):
+        myprompt = INTERMEDIATE_SUMMARY_PROMPT.format(chunk=chunk, current_summary=current_summary, word_limit=word_limit)
     
         res = await self.client.get_completion(myprompt, max_tokens=4000)
         
@@ -56,7 +56,7 @@ class Iterative:
         return result
     
     
-    def compress_summary(self, current_summary, current_length, target_length):
+    async def compress_summary(self, current_summary, current_length, target_length):
         myprompt = COMPRESS_SUMMARY_PROMPT.format(current_summary=current_summary, current_length=current_length, target_length=target_length)
     
         res = await self.client.get_completion(myprompt, max_tokens=4000)
@@ -66,14 +66,17 @@ class Iterative:
         return result
     
     
-    def iterative_summary(self, chunks, word_limit=500):
-        current_summary = self.generate_initial_summary(chunks[0], word_limit)
-    
+    async def iterative_summary(self, chunks, word_limit=500):
+        current_summary = await self.generate_initial_summary(chunks[0], word_limit)
+        
         for i in range(1, len(chunks)):
-            current_summary = self.generate_intermediate_summary(chunks[i], current_summary)
+            current_summary = await self.generate_intermediate_summary(chunks[i], current_summary)
             current_length = len(current_summary.split())
     
             if current_length > word_limit:
-                current_summary = self.compress_summary(current_summary, current_length, 500)
+                current_summary = await self.compress_summary(current_summary, current_length, 500)
     
         return current_summary
+        
+    async def run(self, chunks, initial_word_limit=500):
+       return await self.iterative_summary(chunks, initial_word_limit)

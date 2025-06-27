@@ -36,3 +36,6 @@ class Pseudo:
             summaries_with_names.append((name, summ))
     
         return summaries_with_names
+
+    async def run(self, file_names):
+        return await pseudo_summaries(file_names)

@@ -72,7 +72,7 @@ class Blueprint:
         for chunk, blueprint in zip(chunks, blueprints):
             summaries_list.append(self.summarize_with_blueprint(chunk, blueprint))
     
-        await summaries.complete_couroutines(batch_size=30)
+        await summaries_list.complete_couroutines(batch_size=30)
         summaries = await summaries_list.to_list()
     
         while len(summaries) > 1:
@@ -106,3 +106,6 @@ class Blueprint:
                     break
     
         return final_summary
+
+    async def run(self, chunks, initial_word_limit=500):
+       return await self.text_blueprint_summary(chunks, initial_word_limit)

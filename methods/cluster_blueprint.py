@@ -49,9 +49,9 @@ class BlueprintCluster:
     
     async def generalize_questions(self, questions: List[str]) -> str:
         questions_str = "\n".join(f"- {q}" for q in questions)
-        myprompt = QUESTIONS_PROMPT.format(questions_str)
+        myprompt = QUESTIONS_PROMPT.format(questions_str=questions_str)
     
-        res = await self.client.get_completion(prompt, max_tokens=64, rep_penalty=1.0)
+        res = await self.client.get_completion(myprompt, max_tokens=64, rep_penalty=1.0)
     
         response = extract_response(res)
         return response
@@ -60,12 +60,13 @@ class BlueprintCluster:
     async def generate_blueprint(self, chunk):
         myprompt = BLUEPRINT_PROMPT.format(chunk)
     
-        blueprint = await self.client.get_completion(
-            prompt,
+        blupr = await self.client.get_completion(
+            myprompt,
             max_tokens=4000,
             rep_penalty=1.0
         )
-    
+
+        blueprint = extract_response(blupr)
         return blueprint
     
     
@@ -172,3 +173,6 @@ class BlueprintCluster:
                     break
     
         return final_summary
+
+    async def run(self, chunks, initial_word_limit=500):
+       return await self.cluster_text_blueprint_summary(chunks, initial_word_limit)

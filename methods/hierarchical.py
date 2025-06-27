@@ -58,8 +58,10 @@ class Hierarchical:
             max_tokens=4000,
             rep_penalty=1.0
         )
+
+        result = extract_response(res)
     
-        return res
+        return result
     
     
     async def merge_summaries(self, summaries, word_limit=500, use_context=False, previous_summary=''):
@@ -134,3 +136,6 @@ class Hierarchical:
             return current_level_summaries[0]
     
         return await self.merge_summaries(current_level_summaries, current_word_limit)
+
+    async def run(self, chunks, initial_word_limit=500, filtered=True):
+       return await self.hierarchical_summary(chunks, initial_word_limit, filtered)
