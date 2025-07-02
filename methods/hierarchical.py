@@ -1,5 +1,8 @@
 from utils import AsyncList, extract_response
 from metrics import similarity
+import torch
+import gc
+from sentence_transformers import SentenceTransformer
 
 CHUNK_SUMMARY_PROMPT = """Ниже приведена часть истории:
 ---
@@ -35,20 +38,28 @@ SUMMARY_MERGE_NO_CONTEXT_PROMPT = """Ниже приведены несколь�
 class Hierarchical:
     def __init__(self, client):
         self.client = client
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.encoder = SentenceTransformer('deepvk/USER-bge-m3').to(self.device)
     
-    def filter_near_duplicates(self, summaries, th: float = .85):
+    def filter_near_duplicates(self, summaries, th: float = 0.85):
         """сохраняем первую, все следующие сравниваем с последней сохранённой"""
-        if not summaries:
-            return []
-    
-        kept = [summaries[0]]
-    
-        for s in summaries[1:]:
-            if similarity(s, kept[-1]) < th:
-                kept.append(s)
-    
-        return kept
-    
+        n = len(summaries)
+
+        if n == 0 or n == 1:
+            return summaries
+        #print('starting to emb')
+        embs = torch.from_numpy(self.encoder.encode(summaries, batch_size=16, normalize_embeddings=True, device=self.device))
+        embs = embs.to(self.device)
+        sim_matrix = embs @ embs.T
+        mask = torch.triu(torch.ones(n, n, dtype=torch.bool), diagonal=0).to(self.device)
+        masked_sim = sim_matrix.masked_fill(mask, -1)
+        max_sim_row, _ = torch.max(masked_sim, dim=1)
+        keep_mask = max_sim_row < th
+        keep_mask[0] = True
+        
+        valid_indices = torch.nonzero(keep_mask, as_tuple=False).squeeze()
+        valid_summaries = [summaries[i] for i in valid_indices]
+        return valid_summaries
     
     async def summarize_chunk(self, chunk, word_limit=500):
         myprompt = CHUNK_SUMMARY_PROMPT.format(chunk=chunk, word_limit=word_limit)
@@ -94,7 +105,10 @@ class Hierarchical:
             raise ValueError("`chunks` должен содержать хотя бы один элемент!")
         #print('chunks len: ', len(chunks))
         rest_chunks = self.filter_near_duplicates(chunks) if filtered else chunks
-    
+        if filtered:
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+            gc.collect()
         results = AsyncList()
     
         for chunk in rest_chunks:
@@ -138,6 +152,10 @@ class Hierarchical:
             await tasks.complete_couroutines(batch_size=40)
             next_level_summaries = await tasks.to_list()
             current_level_summaries = self.filter_near_duplicates(next_level_summaries) if filtered else next_level_summaries
+            if filtered:
+                torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()
+                gc.collect()
             #print('Done!')
             #print('len of new sum: ', len(current_level_summaries))
     
