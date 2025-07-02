@@ -40,14 +40,14 @@ class Hierarchical:
         self.client = client
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.encoder = SentenceTransformer('deepvk/USER-bge-m3').to(self.device)
-    
+        
     def filter_near_duplicates(self, summaries, th: float = 0.85):
-        """сохраняем первую, все следующие сравниваем с последней сохранённой"""
+        "удаление излишних текстов - 'воды' "
         n = len(summaries)
-
+        
         if n == 0 or n == 1:
             return summaries
-        #print('starting to emb')
+            
         embs = torch.from_numpy(self.encoder.encode(summaries, batch_size=16, normalize_embeddings=True, device=self.device))
         embs = embs.to(self.device)
         sim_matrix = embs @ embs.T
@@ -60,20 +60,16 @@ class Hierarchical:
         valid_indices = torch.nonzero(keep_mask, as_tuple=False).squeeze()
         valid_summaries = [summaries[i] for i in valid_indices]
         return valid_summaries
-    
+        
     async def summarize_chunk(self, chunk, word_limit=500):
         myprompt = CHUNK_SUMMARY_PROMPT.format(chunk=chunk, word_limit=word_limit)
-    
         res = await self.client.get_completion(
             myprompt,
             max_tokens=4000,
             rep_penalty=1.0
         )
-
         result = extract_response(res)
-    
         return result
-    
     
     async def merge_summaries(self, summaries, word_limit=500, use_context=False, previous_summary=''):
         combined_summary = " ".join(summaries)
@@ -125,10 +121,10 @@ class Hierarchical:
     
         if len(current_level_summaries) == 1:
             return current_level_summaries[0]
-    
+            
         if len(current_level_summaries) == 2:
             return await self.merge_summaries(current_level_summaries, current_word_limit)
-
+        
         count = 0
         while len(current_level_summaries) > 2:
             #print('count: ', count)
@@ -161,8 +157,8 @@ class Hierarchical:
     
         if len(current_level_summaries) == 1:
             return current_level_summaries[0]
-    
+            
         return await self.merge_summaries(current_level_summaries, current_word_limit)
-
+        
     async def run(self, chunks, initial_word_limit=500, filtered=True):
        return await self.hierarchical_summary(chunks, initial_word_limit, filtered)
