@@ -10,7 +10,7 @@ class Summarisation:
     def __init__(self, KEY=None, URL=None, model_name=None):
         self.client = LlmCompleter(URL, KEY, model_name)
         self.blueprint = Blueprint(self.client)
-        self.cluster_blueprint = BlueprintCluster(self.client)
+        self.cluster_blueprint = Blueprint(self.client, mode='cluster')
         self.hierarchical = Hierarchical(self.client)
         self.iterative = Iterative(self.client)
         self.pseudo = Pseudo(self.client)
