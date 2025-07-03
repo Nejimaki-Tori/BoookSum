@@ -11,6 +11,5 @@ pytorch-ignite
 numpy
 absl-py
 rouge-score
-faiss-cpu
 bert_score
 scikit-learn
