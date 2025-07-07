@@ -1,5 +1,4 @@
 from utils import AsyncList, extract_response
-from metrics import similarity
 import torch
 import gc
 from sentence_transformers import SentenceTransformer
@@ -57,7 +56,7 @@ class Hierarchical:
         keep_mask = max_sim_row < th
         keep_mask[0] = True
         
-        valid_indices = torch.nonzero(keep_mask, as_tuple=False).squeeze()
+        valid_indices = torch.nonzero(keep_mask, as_tuple=False).squeeze(1)
         valid_summaries = [summaries[i] for i in valid_indices]
         return valid_summaries
         
@@ -99,7 +98,6 @@ class Hierarchical:
     async def hierarchical_summary(self, chunks, initial_word_limit=500, filtered=True):
         if not chunks:
             raise ValueError("`chunks` должен содержать хотя бы один элемент!")
-        #print('chunks len: ', len(chunks))
         rest_chunks = self.filter_near_duplicates(chunks) if filtered else chunks
         if filtered:
             torch.cuda.empty_cache()
@@ -112,12 +110,8 @@ class Hierarchical:
     
         await results.complete_couroutines(batch_size=40)
         summaries = await results.to_list()
-        #print('sum len: ', len(summaries))
         current_level_summaries = summaries
         current_word_limit = initial_word_limit
-    
-        #if len(current_level_summaries) == 0 and filtered:
-        #    raise RuntimeError("Не осталось ни одной аннотации после фильтрации узлов!")
     
         if len(current_level_summaries) == 1:
             return current_level_summaries[0]
@@ -127,7 +121,6 @@ class Hierarchical:
         
         count = 0
         while len(current_level_summaries) > 2:
-            #print('count: ', count)
             count += 1
             i = 0
             tasks = AsyncList()
@@ -144,16 +137,14 @@ class Hierarchical:
                 else:
                     tasks.append(current_level_summaries[i])
                     i += 1
-            #print('waiting...')
             await tasks.complete_couroutines(batch_size=40)
             next_level_summaries = await tasks.to_list()
+            #print('len of s: ', len(next_level_summaries))
             current_level_summaries = self.filter_near_duplicates(next_level_summaries) if filtered else next_level_summaries
             if filtered:
                 torch.cuda.empty_cache()
                 torch.cuda.ipc_collect()
                 gc.collect()
-            #print('Done!')
-            #print('len of new sum: ', len(current_level_summaries))
     
         if len(current_level_summaries) == 1:
             return current_level_summaries[0]

@@ -2,178 +2,194 @@ from typing import List
 from evaluate import load as hf_load
 from sentence_transformers import SentenceTransformer
 from ignite.metrics import RougeL
-from utils import lemmatize_text, LlmCompleter, AsyncList, oclient, model
+from utils import LlmCompleter, AsyncList, model, extract_response
 import re
 import torch
+import nltk
+from nltk.stem import SnowballStemmer
+from nltk.tokenize import word_tokenize
+import razdel
+
+QUESTIONS_COVERAGE_PROMPT = """Ты - эксперт в оценивании качества аннотаций для книг. Твоя задача — тщательно оценить, насколько представленная аннотация позволяет ответить на конкретный вопрос, касающийся ключевых аспектов исходного произведения.
+
+Вопрос:
+{question}
+Текст аннотации:
+{text}
+
+Содержится ли в этом тексте ответ на вопрос?
+Начни ответ с {yes}, если содержится или с {no}, если не содержится.
+"""
+
+GOLD_QUESTIONS_PROMPT = """На основе данной аннотации сформируй несколько ключевых вопросов, ответы на которые можно однозначно дать, зная содержание аннотации.
+
+Аннотация:
+---
+{ref_annotation}
+---
+Ключевые вопросы нужно писать по порядку, начиная каждый вопрос с новой строки. Кроме ключевых вопросов ничего писать не нужно.
+"""
+
+ANSWER_PROMPT = """На основе данной аннотации сформируй ответ на поставленный вопрос. Твоя задача — **строго на основе предоставленной аннотации** сформировать ответ на ключевой вопрос.
+
+Аннотация:
+{ref_annotation}
+
+Ключевой вопрос:
+{key_q}
+---
+
+Не пиши вопрос, пиши только ответ.
+"""
+
+class Evaluater:
+    def __init__(self, evaluater=None, pre_load=False):
+        if not pre_load:
+            nltk.download('punkt')
+            nltk.download('punkt_tab')
+        self.client_eval = evaluater
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.stemmer = SnowballStemmer('russian')
+        #self.rouge = hf_load('rouge')
+        self.bert_score = hf_load('bertscore', model_type='deepvk/USER-bge-m3')
+        self.encoder = SentenceTransformer('deepvk/USER-bge-m3').to(self.device)
+
+    def lemmatize_text(self, text):
+        tokens = word_tokenize(text, language='russian')
+        return ' '.join(self.stemmer.stem(token) for token in tokens)
+
+    
+    def rouge_L(self, ref, pred):
+        m = RougeL(multiref="average")
+    
+        lem_candidate = self.lemmatize_text(pred).split()
+        lem_references = self.lemmatize_text(ref).split()
+    
+        m.update(([lem_candidate], [lem_references]))
+    
+        return round(m.compute()['Rouge-L-F'], 4)
 
 
-rouge = hf_load('rouge')
-bert_score = hf_load('bertscore', model_type='deepvk/USER-bge-m3')
-encoder = SentenceTransformer('deepvk/USER-bge-m3')
+    #def bert_f1(self, ref, pred):
+    #    return self.bert_score.compute(references=[ref], predictions=[pred], lang='ru')['f1'][0]
 
-
-def rouge_L(pred: str, ref: str) -> float:
-    m = RougeL(multiref="average")
-
-    lem_candidate = lemmatize_text(pred).split()
-    lem_references = lemmatize_text(ref).split()
-
-    m.update(([lem_candidate], [lem_references]))
-
-    return round(m.compute()['Rouge-L-F'], 4)
-
-
-def bert_f1(pred: str, ref: str) -> float:
-    return round(bert_score.compute(predictions=[pred], references=[ref], lang='ru')['f1'][0], 3)
-
-
-def similarity(a: str, b: str) -> float:
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    emb_1 = encoder.encode(a, device=device)
-    emb_2 = encoder.encode(b, device=device)
-
-    return round(float(encoder.similarity(emb_1, emb_2).item()), 3)
-
-
-async def compute_coverage(
-        questions: List[str],
-        summary: str,
-        client: LlmCompleter,
-        positive_choice: str = "Д",
-        negative_choice: str = "Н"
-) -> tuple[float, list[int]]:
-    key_q_prompt = """Вопрос:
-    {}
-    Текст:
-    {}
-    Содержится ли в этом тексте ответ на вопрос?
-    Начни ответ с {} или {}
-    """
-
-    probs = AsyncList()
-
-    for q in questions:
-        prompt = key_q_prompt.format(q, summary, positive_choice, negative_choice)
-        probs.append(client.get_probability(prompt, rep_penalty=1.0, max_tokens=10))
-
-    await probs.complete_couroutines(batch_size=20)
-    results = await probs.to_list()
-
-    # подсчитываем покрытие
-    flags: List[int] = []
-
-    print(results)
-
-    for res in results:
-        if negative_choice in res:
-            prob = 1 - res[negative_choice]
-        elif positive_choice in res:
-            prob = res[positive_choice]
+    def bertscore(self, ref, pred):
+        ref_emb =  self.encoder.encode([s.text for s in razdel.sentenize(ref)], normalize_embeddings=True, device=self.device)
+        pred_emb = self.encoder.encode([s.text for s in razdel.sentenize(pred)], normalize_embeddings=True, device=self.device)
+        sims = pred_emb @ ref_emb.T
+        precision = sims.max(axis=1).mean()
+        recall = sims.max(axis=0).mean()
+        if precision + recall == 0:
+            f1 = 0.0
         else:
-            prob = 0.0
-
-        print(prob)
-        flags.append(1 if prob >= 0.75 else 0)
-
-    coverage = sum(flags) / len(flags) if flags else 0.0
-
-    return round(coverage, 3), flags
-
-
-def generate_key_questions(ref_annotation, model="llama3-70b"):
-    prompt = f"""На основе данной аннотации сформируй несколько ключевых вопросов, ответы на которые можно однозначно дать, зная содержание аннотации:
-            {ref_annotation}
-            ---
-            Ключевые вопросы нужно писать по порядку, начиная каждый вопрос с новой строки. Кроме ключевых вопросов ничего писать не нужно.
-            """
-
-    res = oclient.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.01,
-        max_tokens=4000,
-        extra_body={
-            "repetition_penalty": 1.0,
-            "guided_choice": None,
-            "add_generation_prompt": True,
-            "guided_regex": None
-        }
-    )
-
-    raw = res.choices[0].message.content.strip()
-    lines = [line.strip() for line in raw.splitlines() if line.strip()]
-    questions = [re.sub(r'^\s*(?:\d+[\.\)]|[-•])\s*', '', line) for line in lines]
-
-    return questions
+            f1 = 2 * precision * recall / (precision + recall)
+        return precision, recall, f1
+        
+    def similarity(self, a, b):
+        emb_1 = self.encoder.encode(a, device=self.device)
+        emb_2 = self.encoder.encode(b, device=self.device)
+    
+        return round(float(self.encoder.similarity(emb_1, emb_2).item()), 3)
 
 
-def generate_key_answers(ref_annotation, key_q, model="llama3-70b"):
-    prompt = f"""На основе данной аннотации сформируй ответы на несколько ключевых вопросов:
-            {ref_annotation}
+    async def compute_coverage(
+            self,
+            questions,
+            summary,
+            positive_choice="YES",
+            negative_choice="NO"
+    ):
+        probs = AsyncList()
+    
+        for q in questions:
+            myprompt = QUESTIONS_COVERAGE_PROMPT.format(question=q, text=summary, yes=positive_choice, no=negative_choice)
+            probs.append(self.client_eval.get_probability(myprompt, rep_penalty=1.0, max_tokens=10))
+    
+        await probs.complete_couroutines(batch_size=40)
+        results = await probs.to_list()
 
-            Ключевые вопросы:
-            {key_q}
-            ---
-            Ответы на ключевые вопросы нужно писать по порядку, начиная каждый ответ с новой строки. Не пиши вопросы, пиши только ответы на ключевые вопросы.
-            """
+        flags = []
+    
+        for res in results:
+            if negative_choice in res:
+                prob = 1 - res[negative_choice]
+            elif positive_choice in res:
+                prob = res[positive_choice]
+            else:
+                prob = 0.0
+                
+            flags.append(1 if prob >= 0.75 else 0)
+    
+        coverage = sum(flags) / len(flags) if flags else 0.0
+    
+        return coverage, flags
+    
+    
+    async def generate_key_questions(self, ref_annotation):
+        myprompt = GOLD_QUESTIONS_PROMPT.format(ref_annotation=ref_annotation)
+        
+        res = await self.client_eval.get_completion(myprompt, max_tokens=512)
+        result = extract_response(res)
 
-    res = oclient.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.01,
-        max_tokens=4000,
-        extra_body={
-            "repetition_penalty": 1.0,
-            "guided_choice": None,
-            "add_generation_prompt": True,
-            "guided_regex": None
-        }
-    )
+        questions = [q for q in result.split('\n') if q.strip()]
+        
+        return questions
+    
+    
+    async def get_answer(self, ref_annotation, key_question):
+        myprompt = ANSWER_PROMPT.format(ref_annotation=ref_annotation, key_q=key_question)
+        res = await self.client_eval.get_completion(myprompt, max_tokens=512)
 
-    raw = res.choices[0].message.content.strip()
-    lines = [line.strip() for line in raw.splitlines() if line.strip()]
-    answers = [re.sub(r'^\s*(?:\d+[\.\)]|[-•])\s*', '', line) for line in lines]
+        answer = extract_response(res)
+    
+        return answer
 
-    return answers
+    async def generate_answers(self, ref_annotation, questions):
+        answers = AsyncList()
 
+        for question in questions:
+            answers.append(self.get_answer(ref_annotation, question))
 
-def compute_answer_similarity(questions, summary, cov_flags, reference_answers):
-    prompt = f"""На основе данной аннотации сформируй ответы на несколько ключевых вопросов:
-            {summary}
+        await answers.complete_couroutines(batch_size=40)
+        answers = await answers.to_list()
 
-            Ключевые вопросы:
-            {questions}
-            ---
-            Ответы на ключевые вопросы нужно писать по порядку, начиная каждый ответ с новой строки. Не пиши вопросы, пиши только ответы на ключевые вопросы.
-            """
+        return answers
+    
+    
+    def compute_answer_similarity(self, questions, cov_flags, answers_gold, answers_gen):
+        sims = []
+    
+        for flag, gen, gold in zip(cov_flags, answers_gen, answers_gold):
+            if flag == 0:
+                sims.append(0.0)
+            else:
+                sims.append(self.similarity(gen, gold))
+    
+        return sum(sims) / len(sims) if sims else 0.0
 
-    res = oclient.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.01,
-        max_tokens=4000,
-        extra_body={
-            "repetition_penalty": 1.0,
-            "guided_choice": None,
-            "add_generation_prompt": True,
-            "guided_regex": None
-        }
-    )
+    async def compute_similarity(self, ref_annotation, gen_annotation):
+        questions = await self.generate_key_questions(ref_annotation)
+        print(questions)
+        print()
+        print()
+        answers_gold = await self.generate_answers(ref_annotation, questions)
+        print(answers_gold)
+        print()
+        print()
+        answers_gen = await self.generate_answers(gen_annotation, questions)
+        print(answers_gen)
+        print()
+        print()
+        coverage, cov_flags = await self.compute_coverage(questions, gen_annotation)
+        print(cov_flags)
+        answer_similarity = self.compute_answer_similarity(questions, cov_flags, answers_gold, answers_gen)
 
-    raw = res.choices[0].message.content.strip()
-    lines = [line.strip() for line in raw.splitlines() if line.strip()]
-    gen_answers = [re.sub(r'^\s*(?:\d+[\.\)]|[-•])\s*', '', line) for line in lines]
+        return coverage, answer_similarity
 
-    print(gen_answers)
+    async def evaluate_annotation(self, ref_annotation, gen_annotation):
+        bertcore = self.bertscore(ref_annotation, gen_annotation)
+        rouge = self.rouge_L(ref_annotation, gen_annotation)
+        coverage, answer_sim = await compute_similarity(ref_annotation, gen_annotation)
 
-    sims: List[float] = []
-
-    for q, flag, gen, gold in zip(questions, cov_flags, gen_answers, reference_answers):
-        if flag == 0:
-            sims.append(0.0)
-        else:
-            sims.append(similarity(gen, gold))
-
-    print(sims)
-
-    return round(sum(sims) / len(sims) if sims else 0.0, 3)
+        return bertscore, rouge, coverage, answer_sim
+        
