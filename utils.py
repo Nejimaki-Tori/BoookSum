@@ -1,31 +1,18 @@
 import asyncio
 from tqdm.auto import tqdm
-from openai import AsyncOpenAI, OpenAI
+from openai import AsyncOpenAI
 from scipy.special import softmax
 import inspect
 from transformers import AutoTokenizer
-import nltk
-from nltk.stem import SnowballStemmer
-from nltk.tokenize import word_tokenize
 import re
 import json
 
-nltk.download('punkt')
-nltk.download('punkt_tab')
-stemmer = SnowballStemmer('russian')
-
 API = ''
 URL = ''
-oclient = OpenAI(api_key=API, base_url=URL)
 model = ''
 
 def extract_response(response):
     return response.choices[0].message.content.strip() if response.choices else None
-
-def lemmatize_text(text: str) -> str:
-    tokens = word_tokenize(text, language='russian')
-    return ' '.join(stemmer.stem(token) for token in tokens)
-
 
 class LlmCompleter:
     def __init__(self, api_address, api_key, model_name_or_path):
@@ -171,6 +158,3 @@ def load_data(json_file):
 
 def sanitize_filename(s: str) -> str:
     return re.sub(r'[^A-Za-z0-9\.\-_]', '_', s)
-
-
-client = LlmCompleter(URL, API, model)
