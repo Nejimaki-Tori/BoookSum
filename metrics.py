@@ -169,27 +169,27 @@ class Evaluater:
 
     async def compute_similarity(self, ref_annotation, gen_annotation):
         questions = await self.generate_key_questions(ref_annotation)
-        print(questions)
-        print()
-        print()
+        #print(questions)
+        #print()
+        #print()
         answers_gold = await self.generate_answers(ref_annotation, questions)
-        print(answers_gold)
-        print()
-        print()
+        #print(answers_gold)
+        #print()
+        #print()
         answers_gen = await self.generate_answers(gen_annotation, questions)
-        print(answers_gen)
-        print()
-        print()
+        #print(answers_gen)
+        #print()
+        #print()
         coverage, cov_flags = await self.compute_coverage(questions, gen_annotation)
-        print(cov_flags)
+        #print(cov_flags)
         answer_similarity = self.compute_answer_similarity(questions, cov_flags, answers_gold, answers_gen)
 
         return coverage, answer_similarity
 
     async def evaluate_annotation(self, ref_annotation, gen_annotation):
-        bertcore = self.bertscore(ref_annotation, gen_annotation)
+        bertscore = self.bertscore(ref_annotation, gen_annotation)
         rouge = self.rouge_L(ref_annotation, gen_annotation)
-        coverage, answer_sim = await compute_similarity(ref_annotation, gen_annotation)
+        coverage, answer_sim = await self.compute_similarity(ref_annotation, gen_annotation)
 
         return bertscore, rouge, coverage, answer_sim
         
