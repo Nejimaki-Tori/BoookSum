@@ -1,7 +1,6 @@
 from utils import AsyncList, extract_response
 import torch
 import gc
-from sentence_transformers import SentenceTransformer
 
 CHUNK_SUMMARY_PROMPT = """Ниже приведена часть истории:
 ---
@@ -35,16 +34,23 @@ SUMMARY_MERGE_NO_CONTEXT_PROMPT = """Ниже приведены несколь�
 """
 
 class Hierarchical:
-    def __init__(self, client):
+    def __init__(self, client, device, encoder, think_pass=''):s
         self.client = client
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.encoder = SentenceTransformer('deepvk/USER-bge-m3').to(self.device)
+        self.device = device
+        self.encoder = encoder
+        self.think_pass = think_pass
+
+    def clean_memory(self):
+        if self.device.type == 'cuda':
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+        gc.collect()
         
     def filter_near_duplicates(self, summaries, th: float = 0.85):
         "удаление излишних текстов - 'воды' "
         n = len(summaries)
         
-        if n == 0 or n == 1:
+        if n <= 1:
             return summaries
             
         embs = torch.from_numpy(self.encoder.encode(summaries, batch_size=16, normalize_embeddings=True, device=self.device))
@@ -61,10 +67,10 @@ class Hierarchical:
         return valid_summaries
         
     async def summarize_chunk(self, chunk, word_limit=500):
-        myprompt = CHUNK_SUMMARY_PROMPT.format(chunk=chunk, word_limit=word_limit)
+        myprompt = CHUNK_SUMMARY_PROMPT.format(chunk=chunk, word_limit=word_limit) + self.think_pass
         res = await self.client.get_completion(
             myprompt,
-            max_tokens=4000,
+            max_tokens=2048,
             rep_penalty=1.0
         )
         result = extract_response(res)
@@ -77,13 +83,13 @@ class Hierarchical:
             combined_summary = await self.summarize_chunk(combined_summary, word_limit)
     
         if use_context:
-            myprompt = SUMMARY_MERGE_WITH_CONTEXT_PROMPT.format(previous_summary=previous_summary, combined_summary=combined_summary, word_limit=word_limit)
+            myprompt = SUMMARY_MERGE_WITH_CONTEXT_PROMPT.format(previous_summary=previous_summary, combined_summary=combined_summary, word_limit=word_limit) + self.think_pass
         else:
-            myprompt = SUMMARY_MERGE_NO_CONTEXT_PROMPT.format(combined_summary=combined_summary, word_limit=word_limit)
+            myprompt = SUMMARY_MERGE_NO_CONTEXT_PROMPT.format(combined_summary=combined_summary, word_limit=word_limit) + self.think_pass
     
         res = await self.client.get_completion(
             myprompt,
-            max_tokens=4000,
+            max_tokens=2048,
             rep_penalty=1.0
         )
         result = extract_response(res)
@@ -95,14 +101,12 @@ class Hierarchical:
         temp_summary = await self.merge_summaries(group2, current_word_limit, use_context=True, previous_summary=temp_summary)
         return temp_summary
         
-    async def hierarchical_summary(self, chunks, initial_word_limit=500, filtered=True):
+    async def hierarchical_summary(self, chunks, initial_word_limit=500, filtered=False):
         if not chunks:
             raise ValueError("`chunks` должен содержать хотя бы один элемент!")
         rest_chunks = self.filter_near_duplicates(chunks) if filtered else chunks
         if filtered:
-            torch.cuda.empty_cache()
-            torch.cuda.ipc_collect()
-            gc.collect()
+            self.clean_memory()
         results = AsyncList()
     
         for chunk in rest_chunks:
@@ -142,14 +146,14 @@ class Hierarchical:
             #print('len of s: ', len(next_level_summaries))
             current_level_summaries = self.filter_near_duplicates(next_level_summaries) if filtered else next_level_summaries
             if filtered:
-                torch.cuda.empty_cache()
-                torch.cuda.ipc_collect()
-                gc.collect()
+                self.clean_memory()
     
         if len(current_level_summaries) == 1:
             return current_level_summaries[0]
             
         return await self.merge_summaries(current_level_summaries, current_word_limit)
         
-    async def run(self, chunks, initial_word_limit=500, filtered=True):
-       return await self.hierarchical_summary(chunks, initial_word_limit, filtered)
+    async def run(self, chunks, initial_word_limit=500, filtered=False):
+        s = await self.hierarchical_summary(chunks, initial_word_limit, filtered)
+        self.clean_memory()
+        return s

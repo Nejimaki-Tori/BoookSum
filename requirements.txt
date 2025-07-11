@@ -7,9 +7,9 @@ transformers
 tqdm
 evaluate
 sentence_transformers
-pytorch-ignite
-numpy
+numpy==2.1.3
 absl-py
-rouge-score
 bert_score
 scikit-learn
+rouge
+razdel

@@ -77,17 +77,18 @@ SUMMARIZE_BLUEPRINT_NO_ANSWERS_PROMPT = """
 """
 
 class Blueprint(Hierarchical):
-    def __init__(self, client, mode='default'):
-        super().__init__(client)
+    def __init__(self, client, device, encoder, mode='default', think_pass=''):
+        super().__init__(client, device, encoder, think_pass)
         self.mode = mode
+        self.think_pass = think_pass
         if self.mode != 'default' and mode != 'cluster':
             raise ValueError("Wrong mode for Blueprint! Choose either `default` or `cluster`.")
 
     async def generate_blueprint(self, chunk):
-        myprompt = BLUEPRINT_PROMPT.format(chunk=chunk)
+        myprompt = BLUEPRINT_PROMPT.format(chunk=chunk) + self.think_pass
         blupr = await self.client.get_completion(
             myprompt,
-            max_tokens=4000,
+            max_tokens=1024,
             rep_penalty=1.0
         )
     
@@ -98,13 +99,13 @@ class Blueprint(Hierarchical):
     
     async def summarize_with_blueprint(self, chunk, blueprint):
         if self.mode == 'default':
-            myprompt = SUMMARIZE_BLUEPRINT_PROMPT.format(blueprint=blueprint, chunk=chunk)
+            myprompt = SUMMARIZE_BLUEPRINT_PROMPT.format(blueprint=blueprint, chunk=chunk) + self.think_pass
         else:
-            myprompt = SUMMARIZE_BLUEPRINT_NO_ANSWERS_PROMPT.format(blueprint=blueprint, chunk=chunk)
+            myprompt = SUMMARIZE_BLUEPRINT_NO_ANSWERS_PROMPT.format(blueprint=blueprint, chunk=chunk) + self.think_pass
     
         sumry = await self.client.get_completion(
             myprompt,
-            max_tokens=2000,
+            max_tokens=2048,
             rep_penalty=1.0
         )
 
@@ -113,11 +114,11 @@ class Blueprint(Hierarchical):
         return summary
 
     async def generate_questions_chunk(self, chunk):
-        myprompt = BLUEPRINT_QUESTIONS_PROMPT.format(chunk=chunk)
+        myprompt = BLUEPRINT_QUESTIONS_PROMPT.format(chunk=chunk) + self.think_pass
     
         qs = await self.client.get_completion(
             myprompt,
-            max_tokens=2000,
+            max_tokens=1024,
             rep_penalty=1.0
         )
 
@@ -138,11 +139,11 @@ class Blueprint(Hierarchical):
         return questions
 
     async def get_answer(self, chunk, question):
-        myprompt = BLUEPRINT_ANSWER_PROMPT.format(chunk=chunk, question=question)
+        myprompt = BLUEPRINT_ANSWER_PROMPT.format(chunk=chunk, question=question) + self.think_pass
 
         ans = await self.client.get_completion(
             myprompt,
-            max_tokens=128,
+            max_tokens=256,
             rep_penalty=1.0
         )
 
@@ -202,7 +203,7 @@ class Blueprint(Hierarchical):
 
     async def generalize_questions(self, questions):
         questions_str = "\n".join(f"- {q}" for q in questions)
-        myprompt = GENERALISE_QUESTIONS_PROMPT.format(questions=questions)
+        myprompt = GENERALISE_QUESTIONS_PROMPT.format(questions=questions) + self.think_pass
     
         res = await self.client.get_completion(
             myprompt,
@@ -258,13 +259,13 @@ class Blueprint(Hierarchical):
         summaries_list = AsyncList()
 
         blueprint_list = blueprint if self.mode == 'default' else [blueprint] * len(chunks)
-
+        #print('d1')
         for chunk, bp in zip(chunks, blueprint_list):
             summaries_list.append(self.summarize_with_blueprint(chunk, bp))
                 
         await summaries_list.complete_couroutines(batch_size=40)
         summaries = await summaries_list.to_list()
-        
+        #print('d2')
         while len(summaries) > 1:
             tasks = AsyncList()
             merged_level = []
@@ -280,19 +281,18 @@ class Blueprint(Hierarchical):
             summaries = await tasks.to_list()
     
         final_summary = summaries[0].strip()
-    
+        #print('d3')
         if len(final_summary.split()) > word_limit:
-            for _ in range(3):
-                if self.mode == 'default':
-                    bp = await self.generate_single_blueprint(final_summary)
-                else:
-                    bp = blueprint
-                final_summary = await self.summarize_with_blueprint(final_summary, bp)
-    
-                if len(final_summary.split()) <= word_limit:
-                    break
+            if self.mode == 'default':
+                bp = await self.generate_single_blueprint(final_summary)
+            else:
+                bp = blueprint
+            final_summary = await self.summarize_with_blueprint(final_summary, bp)
     
         return final_summary
 
-    async def run(self, chunks, initial_word_limit=500):
-       return await self.text_blueprint_summary(chunks, initial_word_limit)
+    async def run(self, chunks, initial_word_limit=500, mode='default'):
+        self.mode = mode
+        s = await self.text_blueprint_summary(chunks, initial_word_limit)
+        self.clean_memory()
+        return s

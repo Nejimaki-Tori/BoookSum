@@ -154,7 +154,3 @@ def load_data(json_file):
         data = json.load(file)
 
     return data
-
-
-def sanitize_filename(s: str) -> str:
-    return re.sub(r'[^A-Za-z0-9\.\-_]', '_', s)

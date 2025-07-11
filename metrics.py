@@ -1,10 +1,8 @@
 from typing import List
 from evaluate import load as hf_load
-from sentence_transformers import SentenceTransformer
-from ignite.metrics import RougeL
-from utils import LlmCompleter, AsyncList, model, extract_response
+from rouge import Rouge
+from utils import AsyncList, model, extract_response
 import re
-import torch
 import nltk
 from nltk.stem import SnowballStemmer
 from nltk.tokenize import word_tokenize
@@ -43,32 +41,32 @@ ANSWER_PROMPT = """На основе данной аннотации сформ�
 """
 
 class Evaluater:
-    def __init__(self, evaluater=None, pre_load=False):
+    def __init__(self, evaluater=None, device=None, encoder=None, pre_load=False):
         if not pre_load:
             nltk.download('punkt')
             nltk.download('punkt_tab')
         self.client_eval = evaluater
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = device
+        self.encoder = encoder
         self.stemmer = SnowballStemmer('russian')
         #self.rouge = hf_load('rouge')
         self.bert_score = hf_load('bertscore', model_type='deepvk/USER-bge-m3')
-        self.encoder = SentenceTransformer('deepvk/USER-bge-m3').to(self.device)
-
+        
     def lemmatize_text(self, text):
         tokens = word_tokenize(text, language='russian')
         return ' '.join(self.stemmer.stem(token) for token in tokens)
 
     
     def rouge_L(self, ref, pred):
-        m = RougeL(multiref="average")
-    
-        lem_candidate = self.lemmatize_text(pred).split()
-        lem_references = self.lemmatize_text(ref).split()
-    
-        m.update(([lem_candidate], [lem_references]))
-    
-        return round(m.compute()['Rouge-L-F'], 4)
+        rouge = Rouge()
 
+        scores = rouge.get_scores(
+            hyps=[candidate_text],  
+            refs=[reference_text],   
+            avg=False               
+        )
+        rouge_l = scores[0]["rouge-l"]
+        return rouge_l['f']
 
     #def bert_f1(self, ref, pred):
     #    return self.bert_score.compute(references=[ref], predictions=[pred], lang='ru')['f1'][0]
