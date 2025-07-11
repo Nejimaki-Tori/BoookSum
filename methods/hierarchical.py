@@ -34,7 +34,7 @@ SUMMARY_MERGE_NO_CONTEXT_PROMPT = """Ниже приведены несколь�
 """
 
 class Hierarchical:
-    def __init__(self, client, device, encoder, think_pass=''):s
+    def __init__(self, client, device, encoder, think_pass=''):
         self.client = client
         self.device = device
         self.encoder = encoder

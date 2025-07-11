@@ -27,6 +27,7 @@ class Summarisation:
 
     def change_model(self, KEY=None, URL=None, model_name=None):
         self.model_name = model_name
+        self.think_pass = ' no_think' if model_name == 'Qwen3-235B-A22B' or model_name == 'RefalMachine/RuadaptQwen3-32B-Instruct-v2' else ''
         self.client = LlmCompleter(URL, KEY, self.model_name)
-        self.blueprint = Blueprint(self.client, self.device, self.encoder, mode='default')
-        self.hierarchical = Hierarchical(self.client, self.device, self.encoder)
+        self.blueprint = Blueprint(self.client, self.device, self.encoder, mode='default', think_pass=self.think_pass)
+        self.hierarchical = Hierarchical(self.client, self.device, self.encoder, think_pass=self.think_pass)
