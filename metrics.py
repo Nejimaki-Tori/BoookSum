@@ -56,13 +56,21 @@ class Evaluater:
         tokens = word_tokenize(text, language='russian')
         return ' '.join(self.stemmer.stem(token) for token in tokens)
 
+    def clean(self, txt):
+        txt = re.sub(r"<think>.*?</think>", " ", txt, flags=re.DOTALL)
+        txt = re.sub(r"\s+", " ", txt).strip()
+        return txt
+
     
     def rouge_L(self, ref, pred):
         rouge = Rouge()
 
+        ref = self.clean(ref)
+        pred = self.clean(pred)
+
         scores = rouge.get_scores(
-            hyps=[candidate_text],  
-            refs=[reference_text],   
+            hyps=[pred],  
+            refs=[ref],   
             avg=False               
         )
         rouge_l = scores[0]["rouge-l"]
@@ -72,6 +80,8 @@ class Evaluater:
     #    return self.bert_score.compute(references=[ref], predictions=[pred], lang='ru')['f1'][0]
 
     def bertscore(self, ref, pred):
+        ref = self.clean(ref)
+        pred = self.clean(pred)
         ref_emb =  self.encoder.encode([s.text for s in razdel.sentenize(ref)], normalize_embeddings=True, device=self.device)
         pred_emb = self.encoder.encode([s.text for s in razdel.sentenize(pred)], normalize_embeddings=True, device=self.device)
         sims = pred_emb @ ref_emb.T

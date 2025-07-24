@@ -1,6 +1,5 @@
 asyncio
 openai
-torch
 scipy
 nltk
 transformers

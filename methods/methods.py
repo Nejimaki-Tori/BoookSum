@@ -5,15 +5,14 @@ from iterative import Iterative
 from pseudo import Pseudo
 from utils import LlmCompleter, chunk_text
 from metrics import Evaluater
-from sentence_transformers import SentenceTransformer
-import torch
+
 
 class Summarisation:
-    def __init__(self, KEY=None, URL=None, model_name=None):
+    def __init__(self, KEY=None, URL=None, device=None, encoder=None, model_name=None):
         self.model_name = model_name
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.encoder = SentenceTransformer('deepvk/USER-bge-m3').to(self.device)
-        self.think_pass = ' no_think' if model_name == 'Qwen3-235B-A22B' or model_name == 'RefalMachine/RuadaptQwen3-32B-Instruct-v2' else ''
+        self.device = device
+        self.encoder = encoder
+        self.think_pass = ' /no_think' if model_name == 'Qwen3-235B-A22B' or model_name == 'RefalMachine/RuadaptQwen3-32B-Instruct-v2' else ''
         self.client = LlmCompleter(URL, KEY, self.model_name)
         self.client_evaluater = LlmCompleter(URL, KEY, 'llama3-70b')
         self.blueprint = Blueprint(self.client, self.device, self.encoder, mode='default', think_pass=self.think_pass)

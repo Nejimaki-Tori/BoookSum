@@ -74,6 +74,12 @@ class Hierarchical:
             rep_penalty=1.0
         )
         result = extract_response(res)
+        #print('ONE CHUNK')
+        #print(myprompt)
+        #print('-'*100)
+        #print(result)
+        #print('-'*100)
+        #print('-'*100)
         return result
     
     async def merge_summaries(self, summaries, word_limit=500, use_context=False, previous_summary=''):
@@ -93,7 +99,13 @@ class Hierarchical:
             rep_penalty=1.0
         )
         result = extract_response(res)
-    
+        
+        #print('MERGE')
+        #print(myprompt)
+        #print('-'*100)
+        #print(result)
+        #print('-'*100)
+        #print('-'*100)
         return result
     
     async def merge_group(self, group1, group2, current_word_limit):

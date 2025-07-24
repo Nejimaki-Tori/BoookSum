@@ -12,7 +12,8 @@ URL = ''
 model = ''
 
 def extract_response(response):
-    return response.choices[0].message.content.strip() if response.choices else None
+    text = response.choices[0].message.content.strip() if response.choices else None
+    return re.sub(r"<\/?think>", "", text).strip()
 
 class LlmCompleter:
     def __init__(self, api_address, api_key, model_name_or_path):
@@ -46,6 +47,7 @@ class LlmCompleter:
         msgs = self.prepare_messages(query, system, examples, answer_prefix)
 
         # print(await self.client.models.list())
+        rep_penalty = 1.05 if self.model_name == 'RefalMachine/RuadaptQwen3-32B-Instruct-v2' else 1.0
 
         needs_generation_start = answer_prefix is None
 

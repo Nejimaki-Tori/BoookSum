@@ -83,19 +83,6 @@ class Blueprint(Hierarchical):
         self.think_pass = think_pass
         if self.mode != 'default' and mode != 'cluster':
             raise ValueError("Wrong mode for Blueprint! Choose either `default` or `cluster`.")
-
-    async def generate_blueprint(self, chunk):
-        myprompt = BLUEPRINT_PROMPT.format(chunk=chunk) + self.think_pass
-        blupr = await self.client.get_completion(
-            myprompt,
-            max_tokens=1024,
-            rep_penalty=1.0
-        )
-    
-        blueprint = extract_response(blupr)
-    
-        return blueprint
-    
     
     async def summarize_with_blueprint(self, chunk, blueprint):
         if self.mode == 'default':
@@ -110,7 +97,12 @@ class Blueprint(Hierarchical):
         )
 
         summary = extract_response(sumry)
-    
+        #print('BLUERPRINT SUMMARY')
+        #print(myprompt)
+        #print('-'*100)
+        #print(summary)
+        #print('-'*100)
+        #print('-'*100)
         return summary
 
     async def generate_questions_chunk(self, chunk):
@@ -122,9 +114,15 @@ class Blueprint(Hierarchical):
             rep_penalty=1.0
         )
 
-        questions = extract_response(qs).split('\n')
+        raw_questions = extract_response(qs)
+        questions = [q.strip() for q in raw_questions.split('\n') if q.strip()]
         #print(questions)
-    
+        #print('QUESTIONS')
+        #print(myprompt)
+        #print('-'*100)
+        #print(questions)
+        #print('-'*100)
+        #print('-'*100)
         return questions
 
     async def generate_questions_all(self, chunks):
@@ -148,7 +146,12 @@ class Blueprint(Hierarchical):
         )
 
         answer = extract_response(ans)
-
+        #print('ANSWER')
+        #print(myprompt)
+        #print('-'*100)
+        #print(answer)
+        #print('-'*100)
+        #print('-'*100)
         return answer
         
     async def generate_answers(self, chunk, questions):
@@ -268,7 +271,6 @@ class Blueprint(Hierarchical):
         #print('d2')
         while len(summaries) > 1:
             tasks = AsyncList()
-            merged_level = []
             i = 0
     
             while i < len(summaries):
