@@ -97,12 +97,12 @@ class Blueprint(Hierarchical):
         )
 
         summary = extract_response(sumry)
-        #print('BLUERPRINT SUMMARY')
-        #print(myprompt)
-        #print('-'*100)
-        #print(summary)
-        #print('-'*100)
-        #print('-'*100)
+        print('BLUERPRINT SUMMARY')
+        print(myprompt)
+        print('-'*100)
+        print(summary)
+        print('-'*100)
+        print('-'*100)
         return summary
 
     async def generate_questions_chunk(self, chunk):
@@ -117,12 +117,12 @@ class Blueprint(Hierarchical):
         raw_questions = extract_response(qs)
         questions = [q.strip() for q in raw_questions.split('\n') if q.strip()]
         #print(questions)
-        #print('QUESTIONS')
-        #print(myprompt)
-        #print('-'*100)
-        #print(questions)
-        #print('-'*100)
-        #print('-'*100)
+        print('QUESTIONS')
+        print(myprompt)
+        print('-'*100)
+        print(questions)
+        print('-'*100)
+        print('-'*100)
         return questions
 
     async def generate_questions_all(self, chunks):
@@ -146,12 +146,12 @@ class Blueprint(Hierarchical):
         )
 
         answer = extract_response(ans)
-        #print('ANSWER')
-        #print(myprompt)
-        #print('-'*100)
-        #print(answer)
-        #print('-'*100)
-        #print('-'*100)
+        print('ANSWER')
+        print(myprompt)
+        print('-'*100)
+        print(answer)
+        print('-'*100)
+        print('-'*100)
         return answer
         
     async def generate_answers(self, chunk, questions):
