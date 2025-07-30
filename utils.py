@@ -60,6 +60,7 @@ class LlmCompleter:
             top_p=0.9,
             max_tokens=max_tokens,
             n=beam_width,
+            timeout=180.0,
             extra_body={
                 "repetition_penalty": rep_penalty,
                 "guided_choice": choices,
