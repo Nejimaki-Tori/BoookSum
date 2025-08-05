@@ -14,7 +14,7 @@ class Summarisation:
         self.encoder = encoder
         self.think_pass = ' /no_think' if model_name == 'Qwen3-235B-A22B' or model_name == 'RefalMachine/RuadaptQwen3-32B-Instruct-v2' else ''
         self.client = LlmCompleter(URL, KEY, self.model_name)
-        self.client_evaluater = LlmCompleter(URL, KEY, 'llama3-70b')
+        self.client_evaluater = LlmCompleter(URL, KEY, 'Qwen3-235B-A22B-Instruct-2507')
         self.blueprint = Blueprint(self.client, self.device, self.encoder, mode='default', think_pass=self.think_pass)
         self.hierarchical = Hierarchical(self.client, self.device, self.encoder, think_pass=self.think_pass)
         self.evaluater = Evaluater(evaluater=self.client_evaluater, device=self.device, encoder=self.encoder, pre_load=True)
